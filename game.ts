@@ -20,7 +20,6 @@ export class Cell {
 export class Player {
 	name: string;
 	key: string;
-	alive: boolean = true;
 	constructor(name: string) {
 		this.name = name;
 		this.key = uuidv4();
@@ -81,26 +80,86 @@ export class Game {
 			return;
 		wsa ??= this.subscribers;
 
-		let state: string;
+		let bombCounts = "", playerCells = "";
+		for (let y = 0; y < this.options.height; y++)
+			for (let x = 0; x < this.options.width; x++) {
+				bombCounts += this.board[y][x].bombs;
+				playerCells += this.board[y][x].lastPlayer;
+			}
+		let state = `${this.ply} ${this.nextPlayer} ${bombCounts} ${playerCells}`;
 		if (this.winner != -1)
-			state = `${this.ply} ${this.winner}`;
-		else {
-			let bombCounts = "", playerCells = "";
-			for (let y = 0; y < this.options.height; y++)
-				for (let x = 0; x < this.options.width; x++) {
-					bombCounts += this.board[y][x].bombs;
-					playerCells += this.board[y][x].lastPlayer;
-				}
-			state = `${this.ply} ${this.nextPlayer} ${bombCounts} ${playerCells}`;
-		}
+			state += ` ${this.winner}`;
 
 		wsa.forEach((ws) => {
 			ws.send(state);
 		});
 	}
 
-	handleMessage(ws: CustomWebSocket, command: string, data: string[]) {
-		// TODO
+	handleMessage(ws: CustomWebSocket, command: string, data: string): boolean {
+		switch(command) {
+			case "move":
+				const [key, data1] = data.split(" ", 2);
+				if (this.players.length == this.options.players && this.winner == -1) {
+					if (this.players[this.nextPlayer].key != key) {
+						ws.send("error Invalid key or not your turn");
+						return true;
+					}
+					const cellI = parseInt(data1);
+					if (cellI < 0 || cellI >= this.options.width * this.options.height) {
+						ws.send("error Invalid cell index");
+						return true;
+					}
+					const x = Math.floor(cellI / this.options.height), y = cellI % this.options.height;
+					const cell = this.board[y][x];
+					if (cell.lastPlayer != 0) {
+						ws.send("error Cell owned by another player");
+						return true;
+					}
+					// actually execute move
+					cell.bombs++;
+					cell.lastPlayer = this.nextPlayer + 1;
+					let modified, chainCount = 0;
+					do {
+						if (chainCount++ > 10000)
+							throw new Error("Infinite loop detected");
+						modified = false;
+						for (let y = 0; y < this.options.height; y++)
+							for (let x = 0; x < this.options.width; x++) {
+								const cell = this.board[y][x];
+								let neighbors: Cell[] = [];
+								for (let [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]])
+									if (x + dx >= 0 && x + dx < this.options.width && y + dy >= 0 && y + dy < this.options.height)
+										neighbors.push(this.board[y + dy][x + dx]);
+								if (cell.bombs >= neighbors.length) {
+									cell.bombs -= neighbors.length;
+									for (let neighbor of neighbors)
+										neighbor.bombs++;
+									modified = true;
+								}
+							}
+					} while (modified);
+					this.ply++;
+
+					// check for winner
+					winCheck:
+					for (let y = 0; y < this.options.height; y++)
+						for (let x = 0; x < this.options.width; x++) {
+							const cell = this.board[y][x];
+							if (cell.lastPlayer != 0) {
+								if (this.winner != -1 && this.winner != cell.lastPlayer) {
+									this.winner = -1;
+									break winCheck;
+								}
+								this.winner = cell.lastPlayer;
+							}
+						}
+
+					this.sendState();
+				}
+
+				break;
+		}
+		return false;
 	}
 
 }
