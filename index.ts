@@ -14,23 +14,25 @@ wss.on('connection', function connection(ws: CustomWebSocket) {
 		const data: String = dataBuffer.toString();
 		try {
 			let [command, data1] = data.split(" ", 2);
-			if ((command == "create" || command == "join" || command == "spectate") && ws.game)
-				ws.game.disconnect(ws);
 
 			if (command == "create") {
 				games[ws.game!.id] = new Game(ws, data1);
-				ws.send("ok");
 				return;
 			}
+
+			if ((command == "create" || command == "join") && ws.game)
+				ws.game.disconnect(ws);
 
 			let [gameId, data2] = data1.split(" ", 2);
 			const game = games[gameId];
 			if (!game)
 				return ws.send("error Game not found");
 
-			if (command == "join" || command == "spectate")
-				games[data[1]][command](ws, data[2]);
-			else if (!game.handleMessage(ws, data))
+			if (command == "join")
+				games[data[1]].join(ws, data2);
+			else if (command == "spectate")
+				games[data[1]].spectate(ws);
+			else if (!game.handleMessage(ws, command, data2))
 				ws.send("error Invalid command");
 
 		} catch (e) {
