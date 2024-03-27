@@ -1,6 +1,7 @@
 {
   "type": "module",
   "dependencies": {
+    "uuid": "^9.0.1",
     "ws": "^8.16.0"
   }
 }
