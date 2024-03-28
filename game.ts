@@ -93,8 +93,8 @@ export class Game {
 		let bombCounts = "", playerCells = "";
 		for (let y = 0; y < this.options.height; y++)
 			for (let x = 0; x < this.options.width; x++) {
-				bombCounts += this.board[y][x].bombs;
-				playerCells += this.board[y][x].lastPlayer;
+				bombCounts  = this.board[y][x].bombs     .toString() + bombCounts;
+				playerCells = this.board[y][x].lastPlayer.toString() + playerCells;
 			}
 		let state = `${this.ply} ${this.nextPlayer} ${bombCounts} ${playerCells}`;
 		if (this.winner != -1)
