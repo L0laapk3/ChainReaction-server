@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
+import { split } from './util';
 
 
 
@@ -20,6 +21,7 @@ export class Cell {
 export class Player {
 	name: string;
 	key: string;
+	hasMadeFirstMove: boolean = false;
 	constructor(name: string) {
 		this.name = name;
 		this.key = uuidv4();
@@ -44,20 +46,28 @@ export class Game {
 	winner: number = -1;
 
 	constructor(ws: CustomWebSocket, optionsStr: string) {
+		try {
+			this.options = JSON.parse(optionsStr ?? "{}");
+			this.options.width ??= 6;
+			this.options.height ??= 5;
+			this.options.players ??= 2;
+		} catch (e) {
+			ws.send("error Invalid options");
+		}
+
 		this.id = uuidv4();
 
-		this.options = JSON.parse(optionsStr);
-		this.options.width ??= 6;
-		this.options.height ??= 5;
-		this.options.players ??= 2;
-
 		this.board = new Array(this.options.height).fill(0).map(() => new Array(this.options.width).fill(0).map(() => new Cell()));
-		this.nextPlayer = Math.floor(Math.random() * this.options.players);
+		this.nextPlayer = 1 + Math.floor(Math.random() * this.options.players);
 
 		ws.send(this.id);
 	}
 
 	join(ws: CustomWebSocket, name: string) {
+		if (this.players.length >= this.options.players) {
+			ws.send("error Game full");
+			return;
+		}
 		const player = new Player(name);
 		this.players.push(player);
 		this.spectate(ws, `${this.players.length} ${player.key} `);
@@ -98,9 +108,17 @@ export class Game {
 	handleMessage(ws: CustomWebSocket, command: string, data: string): boolean {
 		switch(command) {
 			case "move":
-				const [key, data1] = data.split(" ", 2);
-				if (this.players.length == this.options.players && this.winner == -1) {
-					if (this.players[this.nextPlayer].key != key) {
+				if (this.players.length != this.options.players) {
+					ws.send("error Not all players have joined");
+					return true;
+				}
+				if (this.winner != -1) {
+					ws.send("error Game has ended");
+					return true;
+				}
+				const [key, data1] = split(data, " ", 2); {
+					const activePlayer = this.players[this.nextPlayer - 1];
+					if (activePlayer.key != key) {
 						ws.send("error Invalid key or not your turn");
 						return true;
 					}
@@ -109,19 +127,17 @@ export class Game {
 						ws.send("error Invalid cell index");
 						return true;
 					}
-					const x = Math.floor(cellI / this.options.height), y = cellI % this.options.height;
+					const x = cellI % this.options.width, y = Math.floor(cellI / this.options.width);
 					const cell = this.board[y][x];
-					if (cell.lastPlayer != 0) {
+					if (cell.lastPlayer != 0 && cell.lastPlayer != this.nextPlayer) {
 						ws.send("error Cell owned by another player");
 						return true;
 					}
 					// actually execute move
 					cell.bombs++;
-					cell.lastPlayer = this.nextPlayer + 1;
+					cell.lastPlayer = this.nextPlayer;
 					let modified, chainCount = 0;
 					do {
-						if (chainCount++ > 10000)
-							throw new Error("Infinite loop detected");
 						modified = false;
 						for (let y = 0; y < this.options.height; y++)
 							for (let x = 0; x < this.options.width; x++) {
@@ -137,24 +153,32 @@ export class Game {
 									modified = true;
 								}
 							}
-					} while (modified);
+					} while (modified && chainCount++ < 10000);
 					this.ply++;
 
-					// check for winner
-					winCheck:
-					for (let y = 0; y < this.options.height; y++)
-						for (let x = 0; x < this.options.width; x++) {
-							const cell = this.board[y][x];
-							if (cell.lastPlayer != 0) {
-								if (this.winner != -1 && this.winner != cell.lastPlayer) {
-									this.winner = -1;
-									break winCheck;
-								}
-								this.winner = cell.lastPlayer;
-							}
+					// advance player and check for winner
+					const thisPlayer = this.nextPlayer;
+					playerLoop:
+					while (true) {
+						this.nextPlayer = (this.nextPlayer % this.options.players) + 1;
+						if (this.nextPlayer == thisPlayer) {
+							this.winner = thisPlayer;
+							break;
 						}
+						// check if player has yet to make first move
+						if (!this.players[this.nextPlayer - 1].hasMadeFirstMove)
+							break;
+						// check if player has any cells left
+						for (let y = 0; y < this.options.height; y++)
+							for (let x = 0; x < this.options.width; x++) {
+								const cell = this.board[y][x];
+								if (cell.lastPlayer == this.nextPlayer)
+									break playerLoop;
+							}
+					}
 
 					this.sendState();
+					return true;
 				}
 
 				break;

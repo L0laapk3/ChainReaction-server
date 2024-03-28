@@ -1,5 +1,6 @@
 import { WebSocketServer } from 'ws';
 import { Game, CustomWebSocket } from './game';
+import { split } from './util';
 
 
 
@@ -10,28 +11,28 @@ const games = {};
 wss.on('connection', function connection(ws: CustomWebSocket) {
 	ws.game = undefined;
 
-	ws.on('message', function message(dataBuffer) {
-		const data: String = dataBuffer.toString();
+	ws.on('message', function message(data) {
 		try {
-			let [command, data1] = data.split(" ", 2);
+			const [command, data1] = split(data.toString(), " ", 2);
 
 			if (command == "create") {
-				games[ws.game!.id] = new Game(ws, data1);
+				const game = new Game(ws, data1);
+				games[game.id] = game;
 				return;
 			}
 
 			if ((command == "create" || command == "join") && ws.game)
 				ws.game.disconnect(ws);
 
-			let [gameId, data2] = data1.split(" ", 2);
+			const [gameId, data2] = split(data1, " ", 2);
 			const game = games[gameId];
 			if (!game)
 				return ws.send("error Game not found");
 
 			if (command == "join")
-				games[data[1]].join(ws, data2);
+				game.join(ws, data2);
 			else if (command == "spectate")
-				games[data[1]].spectate(ws);
+				game.spectate(ws);
 			else if (!game.handleMessage(ws, command, data2))
 				ws.send("error Invalid command");
 
