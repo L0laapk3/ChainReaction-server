@@ -148,13 +148,17 @@ export class Game {
 										neighbors.push(this.board[y + dy][x + dx]);
 								if (cell.bombs >= neighbors.length) {
 									cell.bombs -= neighbors.length;
-									for (let neighbor of neighbors)
+									cell.lastPlayer = cell.bombs ? this.nextPlayer : 0;
+									for (let neighbor of neighbors) {
 										neighbor.bombs++;
+										neighbor.lastPlayer = this.nextPlayer;
+									}
 									modified = true;
 								}
 							}
 					} while (modified && chainCount++ < 10000);
 					this.ply++;
+					this.players[this.nextPlayer - 1].hasMadeFirstMove = true;
 
 					// advance player and check for winner
 					const thisPlayer = this.nextPlayer;
